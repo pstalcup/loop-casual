@@ -6,6 +6,7 @@ import {
   $items,
   $location,
   $monster,
+  $monsters,
   $skill,
   ensureEffect,
   get,
@@ -18,7 +19,6 @@ import { Priorities } from "../engine/priority";
 import { CombatStrategy } from "../engine/combat";
 import { atLevel } from "../lib";
 import { councilSafe } from "./level12";
-import { globalStateCache } from "../engine/state";
 import { summonStrategy } from "./summons";
 
 export const KnobQuest: Quest = {
@@ -81,27 +81,8 @@ export const KnobQuest: Quest = {
         .macro(
           // Always use the fire extinguisher on the guard
           new Macro().trySkill($skill`Fire Extinguisher: Zone Specific`),
-          $monster`Knob Goblin Harem Guard`
+          $monsters`Knob Goblin Harem Guard, Knob Goblin Harem Girl, Knob Goblin Madam`
         )
-        .macro(
-          // Don't use the fire extinguisher if we want to absorb the madam
-          () =>
-            new Macro().externalIf(
-              !globalStateCache.absorb().isTarget($monster`Knob Goblin Madam`),
-              new Macro().trySkill($skill`Fire Extinguisher: Zone Specific`)
-            ),
-          $monster`Knob Goblin Madam`
-        )
-        .macro(
-          // Don't use the fire extinguisher if we want to absorb the girl
-          () =>
-            new Macro().externalIf(
-              !globalStateCache.absorb().isTarget($monster`Knob Goblin Harem Girl`),
-              new Macro().trySkill($skill`Fire Extinguisher: Zone Specific`)
-            ),
-          $monster`Knob Goblin Harem Girl`
-        )
-        .banish($monster`Knob Goblin Harem Guard`)
         .killItem(),
       limit: { soft: 20 }, // Allow for Cobb's Knob lab key
     },

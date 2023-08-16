@@ -12,7 +12,6 @@ import {
   Item,
   Location,
   logprint,
-  Monster,
   myAdventures,
   myBasestat,
   myBuffedstat,
@@ -25,14 +24,11 @@ import {
   myPath,
   myTurncount,
   numericModifier,
-  overdrink,
   print,
   printHtml,
-  putCloset,
   restoreHp,
   restoreMp,
   Slot,
-  toInt,
   toMonster,
   totalTurnsPlayed,
   toUrl,
@@ -329,7 +325,6 @@ export class Engine extends BaseEngine<CombatActions, ActiveTask> {
     }
 
     let force_charge_goose = false;
-    let goose_weight_in_use = false;
 
     // Try to use the goose for stats, if we can
     if (
@@ -339,37 +334,7 @@ export class Engine extends BaseEngine<CombatActions, ActiveTask> {
     ) {
       if (outfit.equip($familiar`Grey Goose`)) {
         combat.macro(new Macro().trySkill($skill`Convert Matter to Pomade`), undefined, true);
-        goose_weight_in_use = true;
         force_charge_goose = true;
-      }
-    }
-
-    // Absorb targeted monsters
-    const absorb_state = globalStateCache.absorb();
-    const absorb_targets = new Set<Monster>();
-    if (task.do instanceof Location) {
-      // If we have teleportitis, everything is a possible target
-      const zone = have($effect`Teleportitis`) ? undefined : task.do;
-      for (const monster of absorb_state.remainingAbsorbs(zone)) absorb_targets.add(monster);
-      for (const monster of absorb_state.remainingReprocess(zone)) absorb_targets.add(monster);
-    }
-    for (const monster of absorb_targets) {
-      if (absorb_state.isReprocessTarget(monster) && !goose_weight_in_use) {
-        outfit.equip($familiar`Grey Goose`);
-        combat.autoattack(new Macro().trySkill($skill`Re-Process Matter`), monster);
-        combat.macro(new Macro().trySkill($skill`Re-Process Matter`), monster, true);
-        debug(`Target x2: ${monster.name}`, "purple");
-      } else {
-        debug(`Target: ${monster.name}`, "purple");
-      }
-      const strategy = combat.currentStrategy(monster);
-      if (
-        strategy === "ignore" ||
-        strategy === "banish" ||
-        strategy === "ignoreNoBanish" ||
-        strategy === "ignoreSoftBanish"
-      ) {
-        combat.action("kill", monster); // TODO: KillBanish for Banish, KillNoBanish for IgnoreNoBanish
       }
     }
 
@@ -420,22 +385,6 @@ export class Engine extends BaseEngine<CombatActions, ActiveTask> {
         (!combat.can("banish") || !banish_state.isFullyBanished(task))
       ) {
         outfit.equip($item`miniature crystal ball`);
-        // If we are going to reprocess, it is useful to charge the goose
-        if (
-          (task.do instanceof Location &&
-            absorb_state.isReprocessTarget(
-              globalStateCache.orb().prediction(task.do) ?? $monster`none`
-            )) ||
-          [
-            "Summon/Little Man In The Canoe",
-            "Summon/One-Eyed Willie",
-            "Summon/Revolving Bugbear",
-            "Summon/Cloud Of Disembodied Whiskers",
-            "Summon/Vicious Gnauga",
-          ].includes(task.name)
-        ) {
-          force_charge_goose = true;
-        }
       }
 
       // Set up a runaway if there are combats we do not care about
@@ -509,8 +458,7 @@ export class Engine extends BaseEngine<CombatActions, ActiveTask> {
     }
 
     if (
-      args.major.chargegoose > familiarWeight($familiar`Grey Goose`) &&
-      absorb_state.remainingReprocess().length === 0
+      args.major.chargegoose > familiarWeight($familiar`Grey Goose`)
     ) {
       force_charge_goose = true;
     }
@@ -546,9 +494,7 @@ export class Engine extends BaseEngine<CombatActions, ActiveTask> {
     // 3. Otherwise, use an orb if task.orbtargets() is nonempty, or if there are absorb targets.
     const orb_targets = task.orbtargets?.();
     const orb_useful =
-      task.orbtargets === undefined
-        ? absorb_targets.size > 0
-        : orb_targets !== undefined && (orb_targets.length > 0 || absorb_targets.size > 0);
+      task.orbtargets !== undefined && orb_targets !== undefined && orb_targets.length > 0;
     if (orb_useful && !outfit.skipDefaults) {
       outfit.equip($item`miniature crystal ball`);
     }
@@ -731,7 +677,6 @@ export class Engine extends BaseEngine<CombatActions, ActiveTask> {
     )
       resetBadOrb();
     if (get("_latteBanishUsed") && shouldFinishLatte()) refillLatte();
-    absorbConsumables();
     autosellJunk();
     for (const poisoned of $effects`Hardly Poisoned at All, A Little Bit Poisoned, Somewhat Poisoned, Really Quite Poisoned, Majorly Poisoned, Toad In The Hole`) {
       if (have(poisoned)) uneffect(poisoned);
@@ -829,39 +774,6 @@ function autosellJunk(): void {
       autosell(item, itemAmount(item));
     }
   }
-}
-
-function absorbConsumables(): void {
-  if (myPath() !== $path`Grey You`) return; // final safety
-  if (myTurncount() >= 1000) return; // stop after breaking ronin
-
-  let absorbed_list = get("_loop_gyou_absorbed_consumables", "");
-  const absorbed = new Set<string>(absorbed_list.split(","));
-
-  for (const item_name in getInventory()) {
-    const item = Item.get(item_name);
-    const item_id = `${toInt(item)}`;
-    if (
-      consumables_blacklist.has(item) ||
-      historicalPrice(item) > Math.max(5000, autosellPrice(item) * 2) ||
-      !item.tradeable ||
-      item.quest ||
-      item.gift
-    )
-      continue;
-    if (item.inebriety > 0 && !absorbed.has(item_id)) {
-      overdrink(item);
-      absorbed_list += absorbed_list.length > 0 ? `,${item_id}` : item_id;
-    }
-    if (item.fullness > 0 && !absorbed.has(item_id)) {
-      if (have($item`Special Seasoning`))
-        putCloset(itemAmount($item`Special Seasoning`), $item`Special Seasoning`);
-      // eat(item);
-      visitUrl(`inv_eat.php?pwd&which=1&whichitem=${item_id}`); // hotfix for food issue
-      absorbed_list += absorbed_list.length > 0 ? `,${item_id}` : item_id;
-    }
-  }
-  set("_loop_gyou_absorbed_consumables", absorbed_list);
 }
 
 function getExtros(): void {

@@ -2,10 +2,9 @@
  * Temporary priorities that override the routing.
  */
 
-import { familiarWeight, getCounter, Location, Monster, myAdventures, myDaycount } from "kolmafia";
+import { getCounter, Location, Monster } from "kolmafia";
 import {
   $effect,
-  $familiar,
   $item,
   $skill,
   get,
@@ -18,7 +17,6 @@ import { moodCompatible } from "./moods";
 import { Priority, Task } from "./task";
 import { globalStateCache } from "./state";
 import { forceItemSources, forceNCPossible, yellowRaySources } from "./resources";
-import { mayLaunchGooseForStats } from "./strategies";
 import { getModifiersFrom } from "./outfit";
 
 export class Priorities {
@@ -77,28 +75,6 @@ export class Prioritization {
     if (yr_needed && yellowRaySources.find((yr) => yr.available())) {
       if (have($effect`Everything Looks Yellow`)) result.priorities.add(Priorities.BadYR);
       else result.priorities.add(Priorities.GoodYR);
-    }
-
-    // Check if Grey Goose is charged
-    if (needsChargedGoose(task)) {
-      if (familiarWeight($familiar`Grey Goose`) < 6) {
-        // Do not trigger BadGoose if a YR is up, to make the airship flow better.
-        // This way we can get the YR off and use the goose separately
-        if (!result.priorities.has(Priorities.GoodYR)) {
-          result.priorities.add(Priorities.BadGoose);
-        }
-      } else if (!mayLaunchGooseForStats()) {
-        result.priorities.add(Priorities.GoodGoose);
-      }
-    }
-
-    // Go places with more adventures if we need them
-    if (myAdventures() < 10 && myDaycount() > 1) {
-      const adv = adventuresRemaining(task);
-      if (adv > 0) {
-        const score = Priorities.NeedAdv.score + 0.001 * adv; // Prefer locations with more adventures
-        result.priorities.add({ ...Priorities.NeedAdv, score: score });
-      }
     }
 
     // Dodge useless monsters with the orb
@@ -222,9 +198,6 @@ function orbPriority(task: Task, monster: Monster): Priority {
   if (!(task.do instanceof Location)) return Priorities.None;
 
   // If the goose is not charged, do not aim to reprocess
-  const absorb_state = globalStateCache.absorb();
-  if (absorb_state.isReprocessTarget(monster) && familiarWeight($familiar`Grey Goose`) < 6)
-    return Priorities.None;
 
   // Determine if a monster is useful or not based on the combat goals
   if (task.orbtargets === undefined) {
@@ -236,9 +209,7 @@ function orbPriority(task: Task, monster: Monster): Priority {
         next_monster_strategy === "ignoreNoBanish" ||
         next_monster_strategy === "ignoreSoftBanish" ||
         next_monster_strategy === "banish" ||
-        next_monster_strategy === undefined) &&
-      !absorb_state.isTarget(monster) &&
-      (!absorb_state.isReprocessTarget(monster) || familiarWeight($familiar`Grey Goose`) < 6);
+        next_monster_strategy === undefined);
 
     const others_useless =
       task_combat.can("ignore") ||
@@ -248,8 +219,6 @@ function orbPriority(task: Task, monster: Monster): Priority {
       task_combat.getDefaultAction() === undefined;
 
     const others_useful =
-      absorb_state.hasTargets(task.do) ||
-      absorb_state.hasReprocessTargets(task.do) ||
       task_combat.can("kill") ||
       task_combat.can("killFree") ||
       task_combat.can("killHard") ||
@@ -267,27 +236,11 @@ function orbPriority(task: Task, monster: Monster): Priority {
   // Use orbtargets to decide if the next monster is useful
   const fromTask = task.orbtargets();
   if (fromTask === undefined) return Priorities.None;
-  const targets = [
-    ...fromTask,
-    ...absorb_state.remainingAbsorbs(task.do),
-    ...absorb_state.remainingReprocess(task.do),
-  ];
+  const targets = [...fromTask];
   if (targets.length === 0) return Priorities.None;
   if (targets.find((t) => t === monster) === undefined) {
     return Priorities.BadOrb;
   } else {
     return Priorities.GoodOrb;
   }
-}
-
-function needsChargedGoose(task: Task): boolean {
-  // Note that we purposefully do not check if we will be equipping the goose
-  // in the location. We want to eventually reprocess everything, and so a
-  // charged goose allows us to use the orb to target reprocess monsters.
-  return task.do instanceof Location && globalStateCache.absorb().hasReprocessTargets(task.do);
-}
-
-function adventuresRemaining(task: Task): number {
-  if (task.do instanceof Location) return globalStateCache.absorb().remainingAdventures(task.do);
-  return 0;
 }
